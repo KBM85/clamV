@@ -1,0 +1,64 @@
+services:
+  clamav:
+    image: clamav/clamav:1.4
+    restart: always
+    environment:
+      FRESHCLAM_CHECKS: "24"
+    volumes:
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    networks:
+      - avnet
+
+  clamav-rest-api:
+    image: benzino77/clamav-rest-api:1.6.6
+    restart: always
+    environment:
+      NODE_ENV: production
+      APP_PORT: "8080"
+      APP_FORM_KEY: FILES
+      APP_MAX_FILE_SIZE: "104857600"
+      APP_MAX_FILES_NUMBER: "10"
+      CLAMD_IP: clamav
+      CLAMD_PORT: "3310"
+      CLAMD_TIMEOUT: "120000"
+    depends_on:
+      clamav:
+        condition: service_healthy
+    networks:
+      - avnet
+
+  gateway:
+    build: ./gateway
+    restart: always
+    environment:
+      LISTEN_ADDR: ":8090"
+      DASH_ADDR: ":8091"
+      UPSTREAM_URL: "http://clamav-rest-api:8080"
+      CLAMD_ADDR: "clamav:3310"
+      MAX_CONCURRENT: "10"
+      SCAN_TIMEOUT: "130s"
+      LOG_PATH: "/data/scans.log"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8090:8090"
+      - "8443:8091"
+      - "8444:8091"
+    depends_on:
+      - clamav-rest-api
+    networks:
+      - avnet
+
+volumes:
+  clamav-db:
+
+networks:
+  avnet:
+    driver: bridge
